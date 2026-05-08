@@ -1,0 +1,17 @@
+{
+  "name": "aura-oneonly-admission",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "api": "node server/index.js",
+    "dev:static": "node dev-server.js",
+    "db:migrate": "node server/migrate.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "pg": "^8.13.1"
+  }
+}
