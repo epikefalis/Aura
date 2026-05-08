@@ -1,4 +1,4 @@
-const serverlessExpress = require("@vendia/serverless-express");
+const serverless = require("serverless-http");
 const { app } = require("../../server/index");
 
-exports.handler = serverlessExpress({ app });
+exports.handler = serverless(app);
