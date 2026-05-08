@@ -292,6 +292,11 @@
   async function clearScans() {
     const event = selectedEvent();
     if (!event) return;
+    if (AuraApi.isScannerToken()) {
+      checkins = [];
+      render({ type: "warn", title: "Scan List Cleared", detail: "This cleared the visible scanner list only. Admissions remain safely recorded." });
+      return;
+    }
     if (!confirm(`Clear scan results and reset admitted counts for "${event.name}"?`)) return;
     try {
       await AuraApi.clearCheckins(event.publicId);
