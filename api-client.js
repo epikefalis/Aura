@@ -1,14 +1,37 @@
 (function () {
   const API_BASE = window.AURA_API_BASE || "/api";
-  const TOKEN_KEY = "aura_api_token_v1";
+  const LEGACY_TOKEN_KEY = "aura_api_token_v1";
+  const USER_TOKEN_KEY = "aura_user_api_token_v1";
+  const SCANNER_TOKEN_KEY = "aura_scanner_api_token_v1";
+
+  function tokenKey() {
+    return window.location.pathname.toLowerCase().includes("scanner") ? SCANNER_TOKEN_KEY : USER_TOKEN_KEY;
+  }
 
   function token() {
-    return localStorage.getItem(TOKEN_KEY) || "";
+    const current = localStorage.getItem(tokenKey()) || "";
+    if (current) return current;
+    const legacy = localStorage.getItem(LEGACY_TOKEN_KEY) || "";
+    if (!legacy) return "";
+    try {
+      const payload = JSON.parse(atob(legacy.split(".")[0].replaceAll("-", "+").replaceAll("_", "/")));
+      if (payload.kind === "scanner") {
+        localStorage.setItem(SCANNER_TOKEN_KEY, legacy);
+        return tokenKey() === SCANNER_TOKEN_KEY ? legacy : "";
+      }
+      localStorage.setItem(USER_TOKEN_KEY, legacy);
+      return tokenKey() === USER_TOKEN_KEY ? legacy : "";
+    } catch {
+      return "";
+    }
   }
 
   function setToken(value) {
-    if (value) localStorage.setItem(TOKEN_KEY, value);
-    else localStorage.removeItem(TOKEN_KEY);
+    if (value) localStorage.setItem(tokenKey(), value);
+    else {
+      localStorage.removeItem(tokenKey());
+      localStorage.removeItem(LEGACY_TOKEN_KEY);
+    }
   }
 
   async function request(path, options = {}) {

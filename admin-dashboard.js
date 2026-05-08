@@ -66,6 +66,7 @@
     }
     try {
       const me = await AuraApi.me();
+      if (!me.user) throw new Error("User login required");
       user = me.user;
       await refreshData();
       render();
