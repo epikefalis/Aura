@@ -55,7 +55,7 @@
 
   async function init(status = null) {
     if (!AuraApi.token()) {
-      renderLoginRequired();
+      renderScannerLogin();
       return;
     }
     try {
@@ -68,7 +68,8 @@
       }
       render(status);
     } catch (err) {
-      renderLoginRequired(err.message);
+      AuraApi.setToken("");
+      renderScannerLogin(err.message);
     }
   }
 
@@ -86,17 +87,51 @@
     }
   }
 
-  function renderLoginRequired(error = "") {
+  function renderScannerLogin(error = "") {
     app.innerHTML = `
       <section class="top-strip">
         <div>
           <div class="brand-kicker">Aura One&Only</div>
           <h1>Guest Admission Scanner</h1>
-          <p class="muted">Sign in from the dashboard first, then reopen the scanner.</p>
+          <p class="muted">Enter the event code and scanner PIN supplied by the organizer.</p>
         </div>
       </section>
-      <section class="panel"><div class="empty-state">${escapeHtml(error || "Authentication required.")}</div></section>
+      <section class="panel">
+        <form id="scannerLoginForm" class="form-grid">
+          <div class="field">
+            <label for="eventCode">Event Code</label>
+            <input id="eventCode" autocomplete="off" placeholder="evt_..." required>
+          </div>
+          <div class="field">
+            <label for="scannerPin">Scanner PIN</label>
+            <input id="scannerPin" inputmode="numeric" autocomplete="off" required>
+          </div>
+          <div class="field">
+            <label for="scannerLoginLabel">Scanner / Gate Name</label>
+            <input id="scannerLoginLabel" value="${escapeHtml(settings.scannerLabel || "Gate 1")}">
+          </div>
+          <button class="primary-btn" type="submit">Open Scanner</button>
+          <div class="empty-state">${escapeHtml(error)}</div>
+        </form>
+      </section>
     `;
+    document.getElementById("scannerLoginForm").addEventListener("submit", async event => {
+      event.preventDefault();
+      try {
+        const result = await AuraApi.scannerLogin({
+          eventPublicId: document.getElementById("eventCode").value.trim(),
+          pin: document.getElementById("scannerPin").value.trim(),
+          scannerLabel: document.getElementById("scannerLoginLabel").value.trim()
+        });
+        AuraApi.setToken(result.token);
+        settings.eventPublicId = result.event.publicId;
+        settings.scannerLabel = document.getElementById("scannerLoginLabel").value.trim() || result.scanner.label;
+        saveSettings();
+        await init({ type: "warn", title: "Scanner Ready", detail: "Scanner PIN accepted." });
+      } catch (err) {
+        renderScannerLogin(err.message);
+      }
+    });
   }
 
   function render(status = null) {
@@ -112,7 +147,7 @@
           <h1>Guest Admission Scanner</h1>
           <p class="muted">Cloud validation with Zebra keyboard scan and backup-code fallback.</p>
         </div>
-        <button class="secondary-btn" id="refreshBtn">Refresh</button>
+        <div class="split-actions"><button class="secondary-btn" id="refreshBtn">Refresh</button><button class="danger-btn" id="scannerLogoutBtn">Logout</button></div>
       </section>
 
       <section class="panel setup-grid">
@@ -164,6 +199,10 @@
     `;
 
     document.getElementById("refreshBtn").addEventListener("click", () => init(statusLine));
+    document.getElementById("scannerLogoutBtn").addEventListener("click", () => {
+      AuraApi.setToken("");
+      renderScannerLogin();
+    });
     document.getElementById("saveSetupBtn").addEventListener("click", async () => {
       settings.eventPublicId = document.getElementById("eventSelect").value;
       settings.scannerLabel = document.getElementById("scannerLabel").value.trim() || "Gate 1";

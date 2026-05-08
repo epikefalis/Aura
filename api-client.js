@@ -35,8 +35,18 @@
     API_BASE,
     token,
     setToken,
+    isScannerToken: () => {
+      const value = token();
+      if (!value.includes(".")) return false;
+      try {
+        return JSON.parse(atob(value.split(".")[0].replaceAll("-", "+").replaceAll("_", "/"))).kind === "scanner";
+      } catch {
+        return false;
+      }
+    },
     request,
     login: (email, password) => request("/auth/login", { method: "POST", body: { email, password } }),
+    scannerLogin: data => request("/scanner/login", { method: "POST", body: data }),
     me: () => request("/me"),
     users: () => request("/users"),
     createUser: data => request("/users", { method: "POST", body: data }),
@@ -44,6 +54,7 @@
     createEvent: data => request("/events", { method: "POST", body: data }),
     updateEvent: (publicId, data) => request(`/events/${encodeURIComponent(publicId)}`, { method: "PATCH", body: data }),
     deleteEvent: publicId => request(`/events/${encodeURIComponent(publicId)}`, { method: "DELETE" }),
+    createScannerAccess: (publicId, data) => request(`/events/${encodeURIComponent(publicId)}/scanner-access`, { method: "POST", body: data }),
     generateQr: (publicId, counts) => request(`/events/${encodeURIComponent(publicId)}/qr/generate`, { method: "POST", body: { counts } }),
     qrTokens: publicId => request(`/events/${encodeURIComponent(publicId)}/qr`),
     checkIn: data => request("/check-in", { method: "POST", body: data }),

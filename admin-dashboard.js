@@ -260,7 +260,7 @@
                   <td><span class="chip ${status}">${status}</span></td>
                   <td>${escapeHtml(event.ownerName || "")}</td>
                   <td>${event.tokenCount}</td>
-                  ${showActions ? `<td><div class="split-actions"><button class="secondary-btn" data-action="edit-event" data-public-id="${event.publicId}">Edit</button><button class="danger-btn" data-action="delete-event" data-public-id="${event.publicId}">Delete</button></div></td>` : ""}
+                  ${showActions ? `<td><div class="split-actions"><button class="secondary-btn" data-action="edit-event" data-public-id="${event.publicId}">Edit</button><button class="secondary-btn" data-action="scanner-pin" data-public-id="${event.publicId}">Scanner PIN</button><button class="danger-btn" data-action="delete-event" data-public-id="${event.publicId}">Delete</button></div></td>` : ""}
                 </tr>
               `;
             }).join("")}
@@ -376,6 +376,27 @@
           await refreshData();
           showToast("Event deleted.");
           render();
+        } catch (err) {
+          showToast(err.message);
+        }
+      });
+    });
+
+    document.querySelectorAll("[data-action='scanner-pin']").forEach(button => {
+      button.addEventListener("click", async () => {
+        const event = events.find(item => item.publicId === button.dataset.publicId);
+        if (!event) return;
+        const label = prompt("Scanner access label", `${event.name} Scanner`);
+        if (label === null) return;
+        const pin = prompt("Scanner PIN (4-8 digits)", "");
+        if (pin === null) return;
+        if (!/^\d{4,8}$/.test(pin)) {
+          showToast("PIN must be 4 to 8 digits.");
+          return;
+        }
+        try {
+          await AuraApi.createScannerAccess(event.publicId, { label, pin, canExportResults: true });
+          showToast(`Scanner access created. Event code: ${event.publicId}`);
         } catch (err) {
           showToast(err.message);
         }
