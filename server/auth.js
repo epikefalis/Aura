@@ -32,6 +32,20 @@ function createToken(user) {
   const payload = {
     sub: user.id,
     role: user.role,
+    kind: "user",
+    exp: Date.now() + TOKEN_TTL_MS
+  };
+  const encoded = base64url(JSON.stringify(payload));
+  return `${encoded}.${sign(encoded)}`;
+}
+
+function createScannerToken(scannerAccess, event) {
+  const payload = {
+    sub: scannerAccess.id,
+    kind: "scanner",
+    eventId: event.id,
+    eventPublicId: event.public_id,
+    canExportResults: scannerAccess.can_export_results,
     exp: Date.now() + TOKEN_TTL_MS
   };
   const encoded = base64url(JSON.stringify(payload));
@@ -53,6 +67,7 @@ function verifyToken(token) {
 
 module.exports = {
   createToken,
+  createScannerToken,
   hashPassword,
   verifyPassword,
   verifyToken

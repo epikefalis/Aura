@@ -3,7 +3,7 @@ require("dotenv").config();
 const cors = require("cors");
 const express = require("express");
 const { pool, query } = require("./db");
-const { createToken, hashPassword, verifyPassword, verifyToken } = require("./auth");
+const { createScannerToken, createToken, hashPassword, verifyPassword, verifyToken } = require("./auth");
 const {
   eventSignature,
   generateBackupCode,
@@ -34,6 +34,11 @@ async function requireAuth(req, res, next) {
     res.status(401).json({ error: "Authentication required" });
     return;
   }
+  if (payload.kind === "scanner") {
+    req.scannerAccess = payload;
+    next();
+    return;
+  }
   const result = await query(
     `SELECT id, email, display_name, role, is_active
      FROM app_users
@@ -45,6 +50,14 @@ async function requireAuth(req, res, next) {
     return;
   }
   req.user = result.rows[0];
+  next();
+}
+
+function requireUser(req, res, next) {
+  if (!req.user) {
+    res.status(403).json({ error: "User account required" });
+    return;
+  }
   next();
 }
 
@@ -111,11 +124,70 @@ app.post("/api/auth/login", asyncRoute(async (req, res) => {
   });
 }));
 
+app.post("/api/scanner/login", asyncRoute(async (req, res) => {
+  const eventPublicId = String(req.body.eventPublicId || "").trim();
+  const pin = String(req.body.pin || "").trim();
+  const scannerLabel = String(req.body.scannerLabel || "Scanner").trim();
+  if (!eventPublicId || !pin) {
+    res.status(400).json({ error: "Event code and scanner PIN are required" });
+    return;
+  }
+  const result = await query(
+    `SELECT a.*, e.public_id, e.name, e.event_date, e.valid_from, e.valid_until, e.status
+     FROM event_scanner_access a
+     JOIN events e ON e.id = a.event_id
+     WHERE e.public_id = $1
+       AND a.is_active = true
+       AND now() BETWEEN a.valid_from AND a.valid_until
+     ORDER BY a.created_at DESC`,
+    [eventPublicId]
+  );
+  const access = result.rows.find(row => verifyPassword(pin, row.pin_hash));
+  if (!access) {
+    res.status(401).json({ error: "Invalid event code or scanner PIN" });
+    return;
+  }
+  const event = {
+    id: access.event_id,
+    public_id: access.public_id,
+    name: access.name,
+    event_date: access.event_date,
+    valid_from: access.valid_from,
+    valid_until: access.valid_until,
+    status: access.status
+  };
+  await query(
+    `INSERT INTO scanners (label, event_id, last_seen_at)
+     VALUES ($1, $2, now())`,
+    [scannerLabel || access.label, access.event_id]
+  );
+  res.json({
+    token: createScannerToken(access, event),
+    scanner: {
+      id: access.id,
+      label: access.label,
+      canExportResults: access.can_export_results
+    },
+    event: {
+      publicId: event.public_id,
+      name: event.name,
+      eventDate: event.event_date,
+      validFrom: event.valid_from,
+      validUntil: event.valid_until,
+      status: event.status
+    }
+  });
+}));
+
 app.get("/api/me", requireAuth, (req, res) => {
+  if (req.scannerAccess) {
+    res.json({ scanner: req.scannerAccess });
+    return;
+  }
   res.json({ user: mapUser(req.user) });
 });
 
-app.get("/api/users", requireAuth, requireAdmin, asyncRoute(async (req, res) => {
+app.get("/api/users", requireAuth, requireUser, requireAdmin, asyncRoute(async (req, res) => {
   const result = await query(
     `SELECT id, email, display_name, role, is_active, created_at
      FROM app_users
@@ -124,7 +196,7 @@ app.get("/api/users", requireAuth, requireAdmin, asyncRoute(async (req, res) => 
   res.json({ users: result.rows.map(mapUser) });
 }));
 
-app.post("/api/users", requireAuth, requireAdmin, asyncRoute(async (req, res) => {
+app.post("/api/users", requireAuth, requireUser, requireAdmin, asyncRoute(async (req, res) => {
   const email = String(req.body.email || "").trim().toLowerCase();
   const displayName = String(req.body.displayName || "").trim();
   const password = String(req.body.password || "");
@@ -145,6 +217,33 @@ app.post("/api/users", requireAuth, requireAdmin, asyncRoute(async (req, res) =>
 }));
 
 app.get("/api/events", requireAuth, asyncRoute(async (req, res) => {
+  if (req.scannerAccess) {
+    const result = await query(
+      `SELECT e.*,
+              u.display_name AS owner_name,
+              COUNT(t.id) AS token_count,
+              COALESCE(SUM(t.capacity), 0) AS total_capacity,
+              COALESCE(SUM(t.admitted_count), 0) AS admitted_count,
+              COALESCE(cap_counts.counts_by_capacity, '{}'::jsonb) AS counts_by_capacity
+       FROM events e
+       JOIN app_users u ON u.id = e.owner_user_id
+       LEFT JOIN admission_tokens t ON t.event_id = e.id
+       LEFT JOIN LATERAL (
+         SELECT jsonb_object_agg(capacity, count ORDER BY capacity) AS counts_by_capacity
+         FROM (
+           SELECT capacity, COUNT(*)::int AS count
+           FROM admission_tokens
+           WHERE event_id = e.id
+           GROUP BY capacity
+         ) grouped_counts
+       ) cap_counts ON true
+       WHERE e.id = $1
+       GROUP BY e.id, u.display_name, cap_counts.counts_by_capacity`,
+      [req.scannerAccess.eventId]
+    );
+    res.json({ events: result.rows.map(mapEvent) });
+    return;
+  }
   const params = [];
   let ownerFilter = "";
   if (req.user.role !== "admin") {
@@ -178,7 +277,7 @@ app.get("/api/events", requireAuth, asyncRoute(async (req, res) => {
   res.json({ events: result.rows.map(mapEvent) });
 }));
 
-app.post("/api/events", requireAuth, asyncRoute(async (req, res) => {
+app.post("/api/events", requireAuth, requireUser, asyncRoute(async (req, res) => {
   const name = String(req.body.name || "").trim();
   const eventDate = String(req.body.eventDate || "").trim();
   const expirationDate = String(req.body.expirationDate || req.body.validUntil || eventDate).trim();
@@ -207,7 +306,7 @@ app.post("/api/events", requireAuth, asyncRoute(async (req, res) => {
   res.status(201).json({ event: mapEvent(result.rows[0]) });
 }));
 
-app.patch("/api/events/:publicId", requireAuth, asyncRoute(async (req, res) => {
+app.patch("/api/events/:publicId", requireAuth, requireUser, asyncRoute(async (req, res) => {
   const currentResult = await query(
     `SELECT *
      FROM events
@@ -245,7 +344,7 @@ app.patch("/api/events/:publicId", requireAuth, asyncRoute(async (req, res) => {
   res.json({ event: mapEvent(result.rows[0]) });
 }));
 
-app.delete("/api/events/:publicId", requireAuth, asyncRoute(async (req, res) => {
+app.delete("/api/events/:publicId", requireAuth, requireUser, asyncRoute(async (req, res) => {
   const result = await query(
     `DELETE FROM events
      WHERE public_id = $1
@@ -260,7 +359,7 @@ app.delete("/api/events/:publicId", requireAuth, asyncRoute(async (req, res) => 
   res.json({ ok: true });
 }));
 
-app.post("/api/events/:publicId/qr/generate", requireAuth, asyncRoute(async (req, res) => {
+app.post("/api/events/:publicId/qr/generate", requireAuth, requireUser, asyncRoute(async (req, res) => {
   const counts = req.body.counts || {};
   const eventResult = await query(
     `SELECT e.*
@@ -363,7 +462,38 @@ app.post("/api/events/:publicId/qr/generate", requireAuth, asyncRoute(async (req
   }
 }));
 
-app.get("/api/events/:publicId/qr", requireAuth, asyncRoute(async (req, res) => {
+app.post("/api/events/:publicId/scanner-access", requireAuth, requireUser, asyncRoute(async (req, res) => {
+  const label = String(req.body.label || "Scanner Access").trim();
+  const pin = String(req.body.pin || "").trim();
+  const canExportResults = req.body.canExportResults !== false;
+  if (!/^\d{4,8}$/.test(pin)) {
+    res.status(400).json({ error: "Scanner PIN must be 4 to 8 digits" });
+    return;
+  }
+  const eventResult = await query(
+    `SELECT *
+     FROM events
+     WHERE public_id = $1
+       AND ($2::text = 'admin' OR owner_user_id = $3)`,
+    [req.params.publicId, req.user.role, req.user.id]
+  );
+  const event = eventResult.rows[0];
+  if (!event) {
+    res.status(404).json({ error: "Event not found" });
+    return;
+  }
+  const result = await query(
+    `INSERT INTO event_scanner_access (
+       event_id, label, pin_hash, can_export_results, valid_from, valid_until, created_by_user_id
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     RETURNING id, label, can_export_results, valid_from, valid_until, created_at`,
+    [event.id, label, hashPassword(pin), canExportResults, event.valid_from, event.valid_until, req.user.id]
+  );
+  res.status(201).json({ scannerAccess: result.rows[0] });
+}));
+
+app.get("/api/events/:publicId/qr", requireAuth, requireUser, asyncRoute(async (req, res) => {
   const result = await query(
     `SELECT t.id, t.display_code, t.capacity, t.admitted_count, t.status, t.created_at
      FROM admission_tokens t
@@ -393,6 +523,10 @@ app.post("/api/check-in", requireAuth, asyncRoute(async (req, res) => {
 
   if (!requestedEvent || !parsed.token) {
     res.status(400).json({ error: "Event public ID and scanned value are required" });
+    return;
+  }
+  if (req.scannerAccess && req.scannerAccess.eventPublicId !== requestedEvent) {
+    res.status(403).json({ error: "Scanner access is limited to one event" });
     return;
   }
 
@@ -434,7 +568,7 @@ app.post("/api/check-in", requireAuth, asyncRoute(async (req, res) => {
       sha256Buffer(parsed.token),
       requestedAdmitCount,
       scannerResult.rows[0].id,
-      req.user.id,
+      req.user ? req.user.id : null,
       parsed.mode === "backup"
     ]
   );
@@ -449,6 +583,10 @@ app.post("/api/check-in", requireAuth, asyncRoute(async (req, res) => {
 }));
 
 app.get("/api/events/:publicId/checkins", requireAuth, asyncRoute(async (req, res) => {
+  if (req.scannerAccess && req.scannerAccess.eventPublicId !== req.params.publicId) {
+    res.status(403).json({ error: "Scanner access is limited to one event" });
+    return;
+  }
   const result = await query(
     `SELECT c.*, t.display_code, s.label AS scanner_label
      FROM checkins c
@@ -459,12 +597,18 @@ app.get("/api/events/:publicId/checkins", requireAuth, asyncRoute(async (req, re
        AND ($2::text = 'admin' OR e.owner_user_id = $3)
      ORDER BY c.created_at DESC
      LIMIT 200`,
-    [req.params.publicId, req.user.role, req.user.id]
+    [req.params.publicId, req.user ? req.user.role : "scanner", req.user ? req.user.id : null]
   );
   res.json({ checkins: result.rows });
 }));
 
 app.get("/api/events/:publicId/checkins.csv", requireAuth, asyncRoute(async (req, res) => {
+  if (req.scannerAccess) {
+    if (req.scannerAccess.eventPublicId !== req.params.publicId || !req.scannerAccess.canExportResults) {
+      res.status(403).json({ error: "Scanner is not allowed to export these results" });
+      return;
+    }
+  }
   const result = await query(
     `SELECT e.public_id,
             e.name AS event_name,
@@ -483,7 +627,7 @@ app.get("/api/events/:publicId/checkins.csv", requireAuth, asyncRoute(async (req
      WHERE e.public_id = $1
        AND ($2::text = 'admin' OR e.owner_user_id = $3)
      ORDER BY c.created_at ASC`,
-    [req.params.publicId, req.user.role, req.user.id]
+    [req.params.publicId, req.user ? req.user.role : "scanner", req.user ? req.user.id : null]
   );
   const rows = [[
     "event_id",
@@ -518,6 +662,10 @@ app.get("/api/events/:publicId/checkins.csv", requireAuth, asyncRoute(async (req
 }));
 
 app.delete("/api/events/:publicId/checkins", requireAuth, asyncRoute(async (req, res) => {
+  if (req.scannerAccess) {
+    res.status(403).json({ error: "Scanner PIN sessions cannot clear scans" });
+    return;
+  }
   const eventResult = await query(
     `SELECT *
      FROM events
