@@ -555,6 +555,10 @@ app.use((error, req, res, next) => {
   res.status(500).json({ error: "Internal server error", detail: error.message });
 });
 
-app.listen(port, () => {
-  console.log(`Aura API running at http://127.0.0.1:${port}`);
-});
+if (require.main === module) {
+  app.listen(port, () => {
+    console.log(`Aura API running at http://127.0.0.1:${port}`);
+  });
+}
+
+module.exports = { app };

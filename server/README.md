@@ -36,6 +36,24 @@ The API runs at:
 http://127.0.0.1:3000
 ```
 
+## Netlify
+
+For Netlify, set environment variables in:
+
+```text
+Site configuration -> Environment variables
+```
+
+Use:
+
+```text
+DATABASE_URL=your Supabase connection string
+AUTH_SECRET=your long random secret
+CORS_ORIGIN=https://aurabyzeus.netlify.app
+```
+
+`netlify.toml` routes `/api/*` to `netlify/functions/api.js`, which wraps the Express app.
+
 ## Demo Login
 
 If `003_seed_demo.sql` has been applied:
