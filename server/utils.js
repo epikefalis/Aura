@@ -58,7 +58,7 @@ function parseScannedValue(value) {
     };
   }
   return {
-    mode: /^\d{6}$/.test(raw) ? "backup" : "qr",
+    mode: /^\d{6}$/.test(raw) ? "ambiguous_numeric" : "qr",
     raw,
     token: normalizeToken(raw)
   };

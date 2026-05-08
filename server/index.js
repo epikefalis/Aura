@@ -553,7 +553,37 @@ app.post("/api/check-in", requireAuth, asyncRoute(async (req, res) => {
     [scannerLabel || "Scanner", event.id]
   );
 
-  const checkinResult = await query(
+  let checkinResult = await runCheckIn({
+    requestedEvent,
+    token: parsed.token,
+    requestedAdmitCount,
+    scannerId: scannerResult.rows[0].id,
+    userId: req.user ? req.user.id : null,
+    isBackupCode: parsed.mode === "ambiguous_numeric"
+  });
+
+  if (parsed.mode === "ambiguous_numeric" && checkinResult.rows[0]?.result === "invalid") {
+    checkinResult = await runCheckIn({
+      requestedEvent,
+      token: parsed.token,
+      requestedAdmitCount,
+      scannerId: scannerResult.rows[0].id,
+      userId: req.user ? req.user.id : null,
+      isBackupCode: false
+    });
+  }
+
+  res.json({
+    checkin: checkinResult.rows[0],
+    parsed: {
+      mode: parsed.mode,
+      eventPublicId: parsed.eventPublicId || requestedEvent
+    }
+  });
+}));
+
+function runCheckIn({ requestedEvent, token, requestedAdmitCount, scannerId, userId, isBackupCode }) {
+  return query(
     `SELECT *
      FROM check_in_guest(
        p_event_public_id := $1,
@@ -565,28 +595,23 @@ app.post("/api/check-in", requireAuth, asyncRoute(async (req, res) => {
      )`,
     [
       requestedEvent,
-      sha256Buffer(parsed.token),
+      sha256Buffer(token),
       requestedAdmitCount,
-      scannerResult.rows[0].id,
-      req.user ? req.user.id : null,
-      parsed.mode === "backup"
+      scannerId,
+      userId,
+      isBackupCode
     ]
   );
-
-  res.json({
-    checkin: checkinResult.rows[0],
-    parsed: {
-      mode: parsed.mode,
-      eventPublicId: parsed.eventPublicId || requestedEvent
-    }
-  });
-}));
+}
 
 app.get("/api/events/:publicId/checkins", requireAuth, asyncRoute(async (req, res) => {
   if (req.scannerAccess && req.scannerAccess.eventPublicId !== req.params.publicId) {
     res.status(403).json({ error: "Scanner access is limited to one event" });
     return;
   }
+  const accessClause = req.scannerAccess
+    ? "AND e.id = $3"
+    : "AND ($2::text = 'admin' OR e.owner_user_id = $3)";
   const result = await query(
     `SELECT c.*, t.display_code, s.label AS scanner_label
      FROM checkins c
@@ -594,10 +619,10 @@ app.get("/api/events/:publicId/checkins", requireAuth, asyncRoute(async (req, re
      LEFT JOIN admission_tokens t ON t.id = c.token_id
      LEFT JOIN scanners s ON s.id = c.scanner_id
      WHERE e.public_id = $1
-       AND ($2::text = 'admin' OR e.owner_user_id = $3)
+       ${accessClause}
      ORDER BY c.created_at DESC
      LIMIT 200`,
-    [req.params.publicId, req.user ? req.user.role : "scanner", req.user ? req.user.id : null]
+    [req.params.publicId, req.user ? req.user.role : "scanner", req.scannerAccess ? req.scannerAccess.eventId : req.user.id]
   );
   res.json({ checkins: result.rows });
 }));
@@ -609,6 +634,9 @@ app.get("/api/events/:publicId/checkins.csv", requireAuth, asyncRoute(async (req
       return;
     }
   }
+  const accessClause = req.scannerAccess
+    ? "AND e.id = $3"
+    : "AND ($2::text = 'admin' OR e.owner_user_id = $3)";
   const result = await query(
     `SELECT e.public_id,
             e.name AS event_name,
@@ -625,9 +653,9 @@ app.get("/api/events/:publicId/checkins.csv", requireAuth, asyncRoute(async (req
      LEFT JOIN admission_tokens t ON t.id = c.token_id
      LEFT JOIN scanners s ON s.id = c.scanner_id
      WHERE e.public_id = $1
-       AND ($2::text = 'admin' OR e.owner_user_id = $3)
+       ${accessClause}
      ORDER BY c.created_at ASC`,
-    [req.params.publicId, req.user ? req.user.role : "scanner", req.user ? req.user.id : null]
+    [req.params.publicId, req.user ? req.user.role : "scanner", req.scannerAccess ? req.scannerAccess.eventId : req.user.id]
   );
   const rows = [[
     "event_id",
