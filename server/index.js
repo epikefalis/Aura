@@ -610,7 +610,7 @@ app.get("/api/events/:publicId/checkins", requireAuth, asyncRoute(async (req, re
     return;
   }
   const accessClause = req.scannerAccess
-    ? "AND e.id = $3"
+    ? "AND $2::text = 'scanner' AND e.id = $3"
     : "AND ($2::text = 'admin' OR e.owner_user_id = $3)";
   const result = await query(
     `SELECT c.*, t.display_code, s.label AS scanner_label
@@ -635,7 +635,7 @@ app.get("/api/events/:publicId/checkins.csv", requireAuth, asyncRoute(async (req
     }
   }
   const accessClause = req.scannerAccess
-    ? "AND e.id = $3"
+    ? "AND $2::text = 'scanner' AND e.id = $3"
     : "AND ($2::text = 'admin' OR e.owner_user_id = $3)";
   const result = await query(
     `SELECT e.public_id,
