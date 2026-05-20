@@ -7,10 +7,12 @@ This folder defines the first Postgres contract for the admission platform.
 - `001_initial_schema.sql` creates users, events, scanners, admission tokens, check-ins, and audit logs.
 - `002_atomic_checkin.sql` creates `check_in_guest(...)`, the transaction-safe admission function.
 - `003_seed_demo.sql` inserts local demo users, one active event, one scanner, and one token.
+- `005_superadmin_role.sql` upgrades existing databases with the superadmin role.
 
 ## Core Rules
 
-- Admin users can see all events and create event users.
+- Superadmins can see all events, create all user roles, and remove user access.
+- Admin users can see all events and create event users or admins.
 - Event users own their own events.
 - QR tokens and backup codes are stored as SHA-256 hashes, not plaintext.
 - Capacity is counted per token with `capacity` and `admitted_count`.

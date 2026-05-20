@@ -5,7 +5,7 @@ BEGIN;
 
 INSERT INTO app_users (id, email, display_name, password_hash, role)
 VALUES
-  ('11111111-1111-1111-1111-111111111111', 'admin@oneonly.local', 'Super Admin', 'DEV_ONLY_admin123', 'admin'),
+  ('11111111-1111-1111-1111-111111111111', 'admin@oneonly.local', 'Super Admin', 'DEV_ONLY_admin123', 'superadmin'),
   ('22222222-2222-2222-2222-222222222222', 'events@oneonly.local', 'Event Manager', 'DEV_ONLY_events123', 'event_user')
 ON CONFLICT (email) DO NOTHING;
 

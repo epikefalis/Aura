@@ -5,7 +5,7 @@ BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
-CREATE TYPE app_user_role AS ENUM ('admin', 'event_user');
+CREATE TYPE app_user_role AS ENUM ('superadmin', 'admin', 'event_user');
 CREATE TYPE event_status AS ENUM ('draft', 'planned', 'active', 'closed', 'cancelled');
 CREATE TYPE scanner_status AS ENUM ('active', 'disabled');
 CREATE TYPE token_status AS ENUM ('active', 'revoked', 'void');
