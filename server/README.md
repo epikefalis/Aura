@@ -59,19 +59,20 @@ CORS_ORIGIN=https://aurabyzeus.netlify.app
 If `003_seed_demo.sql` has been applied:
 
 ```text
-admin@oneonly.local / admin123
+admin@oneonly.local / admin123       superadmin
 events@oneonly.local / events123
 ```
 
-The seed passwords use `DEV_ONLY_` placeholders. Newly created users use Node `scrypt` hashes.
+The seed passwords use `DEV_ONLY_` placeholders for local development only. The login page does not prefill these credentials. Newly created users use Node `scrypt` hashes.
 
 ## Main Endpoints
 
 ```text
 POST /api/auth/login
 GET  /api/me
-GET  /api/users                  admin only
-POST /api/users                  admin only
+GET  /api/users                  admin/superadmin only
+POST /api/users                  admin/superadmin only
+DELETE /api/users/:id            superadmin only
 GET  /api/events
 POST /api/events
 PATCH /api/events/:publicId

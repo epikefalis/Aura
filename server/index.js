@@ -61,9 +61,25 @@ function requireUser(req, res, next) {
   next();
 }
 
+function isAdminRole(role) {
+  return role === "admin" || role === "superadmin";
+}
+
+function isSuperAdminRole(role) {
+  return role === "superadmin";
+}
+
 function requireAdmin(req, res, next) {
-  if (req.user.role !== "admin") {
+  if (!isAdminRole(req.user.role)) {
     res.status(403).json({ error: "Admin access required" });
+    return;
+  }
+  next();
+}
+
+function requireSuperAdmin(req, res, next) {
+  if (!isSuperAdminRole(req.user.role)) {
+    res.status(403).json({ error: "Superadmin access required" });
     return;
   }
   next();
@@ -200,7 +216,10 @@ app.post("/api/users", requireAuth, requireUser, requireAdmin, asyncRoute(async 
   const email = String(req.body.email || "").trim().toLowerCase();
   const displayName = String(req.body.displayName || "").trim();
   const password = String(req.body.password || "");
-  const role = req.body.role === "admin" ? "admin" : "event_user";
+  const requestedRole = String(req.body.role || "event_user");
+  const role = requestedRole === "superadmin" && isSuperAdminRole(req.user.role)
+    ? "superadmin"
+    : requestedRole === "admin" ? "admin" : "event_user";
 
   if (!email || !displayName || password.length < 8) {
     res.status(400).json({ error: "Email, display name, and 8+ character password are required" });
@@ -214,6 +233,26 @@ app.post("/api/users", requireAuth, requireUser, requireAdmin, asyncRoute(async 
     [email, displayName, hashPassword(password), role]
   );
   res.status(201).json({ user: mapUser(result.rows[0]) });
+}));
+
+app.delete("/api/users/:id", requireAuth, requireUser, requireSuperAdmin, asyncRoute(async (req, res) => {
+  if (req.params.id === req.user.id) {
+    res.status(400).json({ error: "You cannot delete your own account" });
+    return;
+  }
+  const result = await query(
+    `UPDATE app_users
+     SET is_active = false,
+         email = concat('deleted+', id::text, '@oneonly.local')
+     WHERE id = $1
+     RETURNING id, email, display_name, role, is_active, created_at`,
+    [req.params.id]
+  );
+  if (!result.rows[0]) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+  res.json({ user: mapUser(result.rows[0]) });
 }));
 
 app.get("/api/events", requireAuth, asyncRoute(async (req, res) => {
@@ -246,7 +285,7 @@ app.get("/api/events", requireAuth, asyncRoute(async (req, res) => {
   }
   const params = [];
   let ownerFilter = "";
-  if (req.user.role !== "admin") {
+  if (!isAdminRole(req.user.role)) {
     params.push(req.user.id);
     ownerFilter = "WHERE e.owner_user_id = $1";
   }
@@ -281,7 +320,7 @@ app.post("/api/events", requireAuth, requireUser, asyncRoute(async (req, res) =>
   const name = String(req.body.name || "").trim();
   const eventDate = String(req.body.eventDate || "").trim();
   const expirationDate = String(req.body.expirationDate || req.body.validUntil || eventDate).trim();
-  const ownerUserId = req.user.role === "admin" && req.body.ownerUserId ? req.body.ownerUserId : req.user.id;
+  const ownerUserId = isAdminRole(req.user.role) && req.body.ownerUserId ? req.body.ownerUserId : req.user.id;
   const status = req.body.status || "planned";
 
   if (!name || !/^\d{4}-\d{2}-\d{2}$/.test(eventDate) || !/^\d{4}-\d{2}-\d{2}$/.test(expirationDate)) {
@@ -311,7 +350,7 @@ app.patch("/api/events/:publicId", requireAuth, requireUser, asyncRoute(async (r
     `SELECT *
      FROM events
      WHERE public_id = $1
-       AND ($2::text = 'admin' OR owner_user_id = $3)`,
+       AND ($2::text IN ('admin', 'superadmin') OR owner_user_id = $3)`,
     [req.params.publicId, req.user.role, req.user.id]
   );
   const current = currentResult.rows[0];
@@ -348,7 +387,7 @@ app.delete("/api/events/:publicId", requireAuth, requireUser, asyncRoute(async (
   const result = await query(
     `DELETE FROM events
      WHERE public_id = $1
-       AND ($2::text = 'admin' OR owner_user_id = $3)
+       AND ($2::text IN ('admin', 'superadmin') OR owner_user_id = $3)
      RETURNING id`,
     [req.params.publicId, req.user.role, req.user.id]
   );
@@ -365,7 +404,7 @@ app.post("/api/events/:publicId/qr/generate", requireAuth, requireUser, asyncRou
     `SELECT e.*
      FROM events e
      WHERE e.public_id = $1
-       AND ($2::text = 'admin' OR e.owner_user_id = $3)`,
+       AND ($2::text IN ('admin', 'superadmin') OR e.owner_user_id = $3)`,
     [req.params.publicId, req.user.role, req.user.id]
   );
   const event = eventResult.rows[0];
@@ -474,7 +513,7 @@ app.post("/api/events/:publicId/scanner-access", requireAuth, requireUser, async
     `SELECT *
      FROM events
      WHERE public_id = $1
-       AND ($2::text = 'admin' OR owner_user_id = $3)`,
+       AND ($2::text IN ('admin', 'superadmin') OR owner_user_id = $3)`,
     [req.params.publicId, req.user.role, req.user.id]
   );
   const event = eventResult.rows[0];
@@ -499,7 +538,7 @@ app.get("/api/events/:publicId/qr", requireAuth, requireUser, asyncRoute(async (
      FROM admission_tokens t
      JOIN events e ON e.id = t.event_id
      WHERE e.public_id = $1
-       AND ($2::text = 'admin' OR e.owner_user_id = $3)
+       AND ($2::text IN ('admin', 'superadmin') OR e.owner_user_id = $3)
      ORDER BY t.capacity, t.display_code`,
     [req.params.publicId, req.user.role, req.user.id]
   );
@@ -611,7 +650,7 @@ app.get("/api/events/:publicId/checkins", requireAuth, asyncRoute(async (req, re
   }
   const accessClause = req.scannerAccess
     ? "AND $2::text = 'scanner' AND e.id = $3"
-    : "AND ($2::text = 'admin' OR e.owner_user_id = $3)";
+    : "AND ($2::text IN ('admin', 'superadmin') OR e.owner_user_id = $3)";
   const result = await query(
     `SELECT c.*, t.display_code, s.label AS scanner_label
      FROM checkins c
@@ -636,7 +675,7 @@ app.get("/api/events/:publicId/checkins.csv", requireAuth, asyncRoute(async (req
   }
   const accessClause = req.scannerAccess
     ? "AND $2::text = 'scanner' AND e.id = $3"
-    : "AND ($2::text = 'admin' OR e.owner_user_id = $3)";
+    : "AND ($2::text IN ('admin', 'superadmin') OR e.owner_user_id = $3)";
   const result = await query(
     `SELECT e.public_id,
             e.name AS event_name,
@@ -698,7 +737,7 @@ app.delete("/api/events/:publicId/checkins", requireAuth, asyncRoute(async (req,
     `SELECT *
      FROM events
      WHERE public_id = $1
-       AND ($2::text = 'admin' OR owner_user_id = $3)`,
+       AND ($2::text IN ('admin', 'superadmin') OR owner_user_id = $3)`,
     [req.params.publicId, req.user.role, req.user.id]
   );
   const event = eventResult.rows[0];
