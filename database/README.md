@@ -8,6 +8,7 @@ This folder defines the first Postgres contract for the admission platform.
 - `002_atomic_checkin.sql` creates `check_in_guest(...)`, the transaction-safe admission function.
 - `003_seed_demo.sql` inserts local demo users, one active event, one scanner, and one token.
 - `005_superadmin_role.sql` upgrades existing databases with the superadmin role.
+- `006_promote_demo_superadmin.sql` promotes the local demo admin after the role exists.
 
 ## Core Rules
 
