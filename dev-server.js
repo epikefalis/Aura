@@ -13,7 +13,7 @@ const types = {
 
 http.createServer((req, res) => {
   let requestPath = decodeURIComponent(req.url.split("?")[0]);
-  if (requestPath === "/") requestPath = "/admin-dashboard.html";
+  if (requestPath === "/") requestPath = "/index.html";
   const filePath = path.normalize(path.join(root, requestPath));
 
   if (!filePath.startsWith(root)) {

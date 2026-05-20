@@ -73,6 +73,7 @@
     me: () => request("/me"),
     users: () => request("/users"),
     createUser: data => request("/users", { method: "POST", body: data }),
+    deleteUser: id => request(`/users/${encodeURIComponent(id)}`, { method: "DELETE" }),
     events: () => request("/events"),
     createEvent: data => request("/events", { method: "POST", body: data }),
     updateEvent: (publicId, data) => request(`/events/${encodeURIComponent(publicId)}`, { method: "PATCH", body: data }),

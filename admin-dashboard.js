@@ -56,7 +56,11 @@
   }
 
   function canAdmin() {
-    return user && user.role === "admin";
+    return user && (user.role === "admin" || user.role === "superadmin");
+  }
+
+  function canSuperAdmin() {
+    return user && user.role === "superadmin";
   }
 
   async function init() {
@@ -100,11 +104,11 @@
           <form id="loginForm" class="form-grid">
             <div class="field">
               <label for="email">Email</label>
-              <input id="email" type="email" autocomplete="username" value="admin@oneonly.local" required>
+              <input id="email" type="email" autocomplete="username" required>
             </div>
             <div class="field">
               <label for="password">Password</label>
-              <input id="password" type="password" autocomplete="current-password" value="admin123" required>
+              <input id="password" type="password" autocomplete="current-password" required>
             </div>
             <button class="primary-btn" type="submit">Sign In</button>
             <div class="error">${escapeHtml(error)}</div>
@@ -319,12 +323,12 @@
           <div class="field"><label for="userName">Full Name</label><input id="userName" required></div>
           <div class="field"><label for="userEmail">Email</label><input id="userEmail" type="email" required></div>
           <div class="field"><label for="userPassword">Temporary Password</label><input id="userPassword" required minlength="8"></div>
-          <div class="field"><label for="userRole">Role</label><select id="userRole"><option value="event_user">Event User</option><option value="admin">Admin</option></select></div>
+          <div class="field"><label for="userRole">Role</label><select id="userRole"><option value="event_user">Event User</option><option value="admin">Admin</option>${canSuperAdmin() ? `<option value="superadmin">Superadmin</option>` : ""}</select></div>
           <button class="primary-btn" type="submit">Create User</button>
         </form>
         <div class="table-panel">
           <div class="table-head"><h3>Users</h3><span class="chip">${users.length} users</span></div>
-          <div class="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th></tr></thead><tbody>${users.map(item => `<tr><td>${escapeHtml(item.displayName)}</td><td>${escapeHtml(item.email)}</td><td>${escapeHtml(item.role)}</td><td>${item.isActive ? "Active" : "Inactive"}</td></tr>`).join("")}</tbody></table></div>
+          <div class="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th>${canSuperAdmin() ? "<th>Actions</th>" : ""}</tr></thead><tbody>${users.map(item => `<tr><td>${escapeHtml(item.displayName)}</td><td>${escapeHtml(item.email)}</td><td>${escapeHtml(item.role)}</td><td>${item.isActive ? "Active" : "Inactive"}</td>${canSuperAdmin() ? `<td>${item.id === user.id || !item.isActive ? "" : `<button class="danger-btn" data-action="delete-user" data-user-id="${item.id}">Delete</button>`}</td>` : ""}</tr>`).join("")}</tbody></table></div>
         </div>
       </div>
     `;
@@ -398,6 +402,22 @@
         try {
           await AuraApi.createScannerAccess(event.publicId, { label, pin, canExportResults: true });
           showToast(`Scanner access created. Event code: ${event.publicId}`);
+        } catch (err) {
+          showToast(err.message);
+        }
+      });
+    });
+
+    document.querySelectorAll("[data-action='delete-user']").forEach(button => {
+      button.addEventListener("click", async () => {
+        const targetUser = users.find(item => item.id === button.dataset.userId);
+        if (!targetUser) return;
+        if (!confirm(`Delete user "${targetUser.displayName}"? They will no longer be able to sign in.`)) return;
+        try {
+          await AuraApi.deleteUser(targetUser.id);
+          await refreshData();
+          showToast("User deleted.");
+          render();
         } catch (err) {
           showToast(err.message);
         }
