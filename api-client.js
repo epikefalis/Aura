@@ -73,6 +73,8 @@
     me: () => request("/me"),
     users: () => request("/users"),
     createUser: data => request("/users", { method: "POST", body: data }),
+    updateUser: (id, data) => request(`/users/${encodeURIComponent(id)}`, { method: "PATCH", body: data }),
+    passwordReminder: id => request(`/users/${encodeURIComponent(id)}/password-reminder`, { method: "POST" }),
     deleteUser: id => request(`/users/${encodeURIComponent(id)}`, { method: "DELETE" }),
     events: () => request("/events"),
     createEvent: data => request("/events", { method: "POST", body: data }),

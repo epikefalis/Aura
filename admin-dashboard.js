@@ -313,6 +313,7 @@
   }
 
   function renderUsers() {
+    const roleOptions = item => `<option value="event_user" ${item && item.role === "event_user" ? "selected" : ""}>Event User</option><option value="admin" ${item && item.role === "admin" ? "selected" : ""}>Admin</option>${canSuperAdmin() ? `<option value="superadmin" ${item && item.role === "superadmin" ? "selected" : ""}>Superadmin</option>` : ""}`;
     return `
       <div class="topbar">
         <div><h2>Users</h2><p class="muted">Create users who can add their own events.</p></div>
@@ -323,12 +324,12 @@
           <div class="field"><label for="userName">Full Name</label><input id="userName" required></div>
           <div class="field"><label for="userEmail">Email</label><input id="userEmail" type="email" required></div>
           <div class="field"><label for="userPassword">Temporary Password</label><input id="userPassword" required minlength="8"></div>
-          <div class="field"><label for="userRole">Role</label><select id="userRole"><option value="event_user">Event User</option><option value="admin">Admin</option>${canSuperAdmin() ? `<option value="superadmin">Superadmin</option>` : ""}</select></div>
+          <div class="field"><label for="userRole">Role</label><select id="userRole">${roleOptions()}</select></div>
           <button class="primary-btn" type="submit">Create User</button>
         </form>
         <div class="table-panel">
           <div class="table-head"><h3>Users</h3><span class="chip">${users.length} users</span></div>
-          <div class="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th>${canSuperAdmin() ? "<th>Actions</th>" : ""}</tr></thead><tbody>${users.map(item => `<tr><td>${escapeHtml(item.displayName)}</td><td>${escapeHtml(item.email)}</td><td>${escapeHtml(item.role)}</td><td>${item.isActive ? "Active" : "Inactive"}</td>${canSuperAdmin() ? `<td>${item.id === user.id || !item.isActive ? "" : `<button class="danger-btn" data-action="delete-user" data-user-id="${item.id}">Delete</button>`}</td>` : ""}</tr>`).join("")}</tbody></table></div>
+          <div class="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th>${canSuperAdmin() ? "<th>Actions</th>" : ""}</tr></thead><tbody>${users.map(item => `<tr><td>${escapeHtml(item.displayName)}</td><td>${escapeHtml(item.email)}</td><td>${escapeHtml(item.role)}</td>${canSuperAdmin() ? `<td><div class="split-actions"><button class="secondary-btn" data-action="edit-user" data-user-id="${item.id}">Edit</button>${item.id === user.id ? "" : `<button class="secondary-btn" data-action="password-reminder" data-user-id="${item.id}">Password</button><button class="danger-btn" data-action="delete-user" data-user-id="${item.id}">Delete</button>`}</div></td>` : ""}</tr>`).join("")}</tbody></table></div>
         </div>
       </div>
     `;
@@ -417,6 +418,52 @@
           await AuraApi.deleteUser(targetUser.id);
           await refreshData();
           showToast("User deleted.");
+          render();
+        } catch (err) {
+          showToast(err.message);
+        }
+      });
+    });
+
+    document.querySelectorAll("[data-action='edit-user']").forEach(button => {
+      button.addEventListener("click", async () => {
+        const targetUser = users.find(item => item.id === button.dataset.userId);
+        if (!targetUser) return;
+        const displayName = prompt("Full name", targetUser.displayName);
+        if (displayName === null) return;
+        const email = prompt("Email", targetUser.email);
+        if (email === null) return;
+        const role = prompt("Role (event_user, admin, superadmin)", targetUser.role);
+        if (role === null) return;
+        const password = prompt("New temporary password (leave blank to keep current password)", "");
+        if (password === null) return;
+        try {
+          await AuraApi.updateUser(targetUser.id, {
+            displayName: displayName.trim(),
+            email: email.trim(),
+            role: role.trim(),
+            ...(password ? { password } : {})
+          });
+          await refreshData();
+          showToast("User updated.");
+          render();
+        } catch (err) {
+          showToast(err.message);
+        }
+      });
+    });
+
+    document.querySelectorAll("[data-action='password-reminder']").forEach(button => {
+      button.addEventListener("click", async () => {
+        const targetUser = users.find(item => item.id === button.dataset.userId);
+        if (!targetUser) return;
+        if (!confirm(`Create a new temporary password for "${targetUser.displayName}"?`)) return;
+        try {
+          const result = await AuraApi.passwordReminder(targetUser.id);
+          await refreshData();
+          const copied = await copyText(result.reminderText);
+          showToast(copied ? "Temporary password copied." : "Temporary password ready.");
+          alert(result.reminderText);
           render();
         } catch (err) {
           showToast(err.message);
@@ -567,6 +614,17 @@
 
   function csvCell(value) {
     return `"${String(value ?? "").replaceAll('"', '""')}"`;
+  }
+
+  async function copyText(value) {
+    if (!navigator.clipboard) return false;
+    try {
+      await navigator.clipboard.writeText(value);
+      return true;
+    } catch {
+      // The alert still shows the reminder when clipboard access is blocked.
+      return false;
+    }
   }
 
   function showToast(message) {
