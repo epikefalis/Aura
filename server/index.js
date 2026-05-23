@@ -1,6 +1,7 @@
 require("dotenv").config();
 
 const cors = require("cors");
+const crypto = require("crypto");
 const express = require("express");
 const { pool, query } = require("./db");
 const { createScannerToken, createToken, hashPassword, verifyPassword, verifyToken } = require("./auth");
@@ -94,6 +95,10 @@ function mapUser(row) {
     isActive: row.is_active,
     createdAt: row.created_at
   };
+}
+
+function generateTemporaryPassword() {
+  return `Aura-${crypto.randomBytes(4).toString("hex")}`;
 }
 
 function mapEvent(row) {
@@ -207,6 +212,7 @@ app.get("/api/users", requireAuth, requireUser, requireAdmin, asyncRoute(async (
   const result = await query(
     `SELECT id, email, display_name, role, is_active, created_at
      FROM app_users
+     WHERE is_active = true
      ORDER BY created_at DESC`
   );
   res.json({ users: result.rows.map(mapUser) });
@@ -233,6 +239,82 @@ app.post("/api/users", requireAuth, requireUser, requireAdmin, asyncRoute(async 
     [email, displayName, hashPassword(password), role]
   );
   res.status(201).json({ user: mapUser(result.rows[0]) });
+}));
+
+app.patch("/api/users/:id", requireAuth, requireUser, requireSuperAdmin, asyncRoute(async (req, res) => {
+  const currentResult = await query(
+    `SELECT id, email, display_name, role, is_active, created_at
+     FROM app_users
+     WHERE id = $1 AND is_active = true`,
+    [req.params.id]
+  );
+  const current = currentResult.rows[0];
+  if (!current) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  const email = String(req.body.email || current.email).trim().toLowerCase();
+  const displayName = String(req.body.displayName || current.display_name).trim();
+  const requestedRole = String(req.body.role || current.role);
+  if (!["event_user", "admin", "superadmin"].includes(requestedRole)) {
+    res.status(400).json({ error: "Role must be event_user, admin, or superadmin" });
+    return;
+  }
+  const role = requestedRole === "superadmin"
+    ? "superadmin"
+    : requestedRole === "admin" ? "admin" : "event_user";
+  const password = String(req.body.password || "");
+
+  if (!email || !displayName) {
+    res.status(400).json({ error: "Email and display name are required" });
+    return;
+  }
+  if (req.params.id === req.user.id && role !== req.user.role) {
+    res.status(400).json({ error: "You cannot change your own role" });
+    return;
+  }
+  if (password && password.length < 8) {
+    res.status(400).json({ error: "Temporary password must be at least 8 characters" });
+    return;
+  }
+
+  const result = await query(
+    `UPDATE app_users
+     SET email = $1,
+         display_name = $2,
+         role = $3,
+         password_hash = CASE WHEN $4::text = '' THEN password_hash ELSE $5 END
+     WHERE id = $6 AND is_active = true
+     RETURNING id, email, display_name, role, is_active, created_at`,
+    [email, displayName, role, password, password ? hashPassword(password) : null, req.params.id]
+  );
+  res.json({ user: mapUser(result.rows[0]) });
+}));
+
+app.post("/api/users/:id/password-reminder", requireAuth, requireUser, requireSuperAdmin, asyncRoute(async (req, res) => {
+  if (req.params.id === req.user.id) {
+    res.status(400).json({ error: "You cannot reset your own password here" });
+    return;
+  }
+  const temporaryPassword = generateTemporaryPassword();
+  const result = await query(
+    `UPDATE app_users
+     SET password_hash = $1
+     WHERE id = $2 AND is_active = true
+     RETURNING id, email, display_name, role, is_active, created_at`,
+    [hashPassword(temporaryPassword), req.params.id]
+  );
+  if (!result.rows[0]) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+  const updatedUser = mapUser(result.rows[0]);
+  res.json({
+    user: updatedUser,
+    temporaryPassword,
+    reminderText: `Hi ${updatedUser.displayName}, your temporary Aura password is ${temporaryPassword}. Please sign in with ${updatedUser.email} and change it with an admin if needed.`
+  });
 }));
 
 app.delete("/api/users/:id", requireAuth, requireUser, requireSuperAdmin, asyncRoute(async (req, res) => {

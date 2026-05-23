@@ -72,6 +72,8 @@ POST /api/auth/login
 GET  /api/me
 GET  /api/users                  admin/superadmin only
 POST /api/users                  admin/superadmin only
+PATCH /api/users/:id             superadmin only
+POST /api/users/:id/password-reminder  superadmin only
 DELETE /api/users/:id            superadmin only
 GET  /api/events
 POST /api/events
