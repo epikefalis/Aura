@@ -146,7 +146,7 @@ app.post("/api/auth/login", asyncRoute(async (req, res) => {
 }));
 
 app.post("/api/scanner/login", asyncRoute(async (req, res) => {
-  const eventPublicId = String(req.body.eventPublicId || "").trim();
+  const eventPublicId = String(req.body.eventPublicId || "").trim().toLowerCase();
   const pin = String(req.body.pin || "").trim();
   const scannerLabel = String(req.body.scannerLabel || "Scanner").trim();
   if (!eventPublicId || !pin) {
@@ -159,7 +159,7 @@ app.post("/api/scanner/login", asyncRoute(async (req, res) => {
      JOIN events e ON e.id = a.event_id
      WHERE e.public_id = $1
        AND a.is_active = true
-       AND now() BETWEEN a.valid_from AND a.valid_until
+       AND now() <= a.valid_until
      ORDER BY a.created_at DESC`,
     [eventPublicId]
   );

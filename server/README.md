@@ -126,6 +126,7 @@ Event creation accepts an explicit expiration date:
 ```
 
 The database stores this as `valid_until`, and `check_in_guest(...)` rejects admission outside the validity window.
+Scanner PIN login is allowed before the event opens so gate devices can be prepared early; expired scanner PINs are still rejected.
 
 ## Scanner Check-In
 
